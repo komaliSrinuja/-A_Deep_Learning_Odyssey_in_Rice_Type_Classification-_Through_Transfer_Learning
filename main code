@@ -1,0 +1,70 @@
+# 1. Install and import dependencies
+import os
+import numpy as np
+from PIL import Image
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+import matplotlib.pyplot as plt
+
+# 2. Synthetic Dataset Creation
+BASE_DIR = '/content/synthetic_rice_data'
+CLASSES = ['Basmati', 'Jasmine', 'Arborio']
+NUM_TRAIN = 20
+NUM_VAL = 5
+IMG_SIZE = 96
+
+def make_dir_structure():
+    for mode in ['train', 'val']:
+        for cls in CLASSES:
+            os.makedirs(os.path.join(BASE_DIR, mode, cls), exist_ok=True)
+
+def create_synthetic_images():
+    for mode, count in [('train', NUM_TRAIN), ('val', NUM_VAL)]:
+        for label, cls in enumerate(CLASSES):
+            for i in range(count):
+                arr = np.random.rand(IMG_SIZE, IMG_SIZE, 3) * (label+1) / len(CLASSES)
+                img = Image.fromarray(np.uint8(arr * 255))
+                img.save(os.path.join(BASE_DIR, mode, cls, f'{cls}_{i}.png'))
+
+make_dir_structure()
+create_synthetic_images()
+
+# 3. Data Generators
+train_dir = os.path.join(BASE_DIR, 'train')
+val_dir = os.path.join(BASE_DIR, 'val')
+
+train_datagen = ImageDataGenerator(rescale=1./255)
+val_datagen = ImageDataGenerator(rescale=1./255)
+
+train_gen = train_datagen.flow_from_directory(
+    train_dir, target_size=(IMG_SIZE, IMG_SIZE), batch_size=4, class_mode='categorical'
+)
+val_gen = val_datagen.flow_from_directory(
+    val_dir, target_size=(IMG_SIZE, IMG_SIZE), batch_size=4, class_mode='categorical'
+)
+
+# 4. Transfer Learning Model
+base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
+base_model.trainable = False
+
+x = GlobalAveragePooling2D()(base_model.output)
+x = Dropout(0.2)(x)
+output = Dense(len(CLASSES), activation='softmax')(x)
+model = Model(inputs=base_model.input, outputs=output)
+
+model.compile(optimizer=Adam(1e-3), loss='categorical_crossentropy', metrics=['accuracy'])
+
+# 5. Train
+model.fit(train_gen, validation_data=val_gen, epochs=3)
+
+# 6. Plot Training History (if you wish)
+# (Add code to plot if desired)
+
+# 7. Evaluate
+val_gen.reset()
+loss, acc = model.evaluate(val_gen)
+print(f'Validation accuracy: {acc:.2f}')
